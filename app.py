@@ -1,9 +1,8 @@
 import yfinance as yf
 import pandas as pd
-from statsmodels.tsa.arima.model import ARIMA
+from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 from datetime import timedelta
-from pmdarima import auto_arima
 import streamlit as st
 
 # Ліва бічна панель
@@ -17,7 +16,7 @@ selected_period_label = st.sidebar.radio('Оберіть період:', list(pe
 selected_period = period_options[selected_period_label]
 show_forecast = st.sidebar.checkbox('Показати прогноз', value=False)
 
-# Верхня панель з заголовком — стилізована як бокова панель
+# Верхня панель
 with st.container():
     st.markdown(
         """
@@ -30,7 +29,7 @@ with st.container():
             align-items: center;
             margin-bottom: 20px;
         '>
-            <h2 style='margin: 0; color: #336699;'>📊 ARIMA Прогнозування акцій</h2>
+            <h2 style='margin: 0; color: #336699;'>📊 Лінійна регресія Прогнозування акцій</h2>
             <div style='flex: 1; text-align: right; font-size: 14px; color: #666;'>
                 Оберіть компанії нижче ⬇️
             </div>
@@ -82,29 +81,25 @@ if selected:
             last_2_months = df.last('60D')
 
             try:
-                auto_model = auto_arima(
-                    df['Close'],
-                    seasonal=False,
-                    stepwise=True,
-                    suppress_warnings=True,
-                    error_action='ignore',
-                    max_p=3, max_q=3,
-                    start_p=1, start_q=1,
-                    d=None
-                )
-                order = auto_model.order
-                if order == (0, 1, 0):
-                    order = (1, 1, 1)
+                # Лінійна регресія
+                last_n = 60
+                df_lr = df.tail(last_n)
+                X = (df_lr.index - df_lr.index[0]).days.values.reshape(-1, 1)
+                y = df_lr['Close'].values
+                model = LinearRegression()
+                model.fit(X, y)
 
-                model = ARIMA(df['Close'], order=order)
-                model_fit = model.fit()
-                forecast = model_fit.forecast(steps=7)
-                future_dates = [df.index[-1] + timedelta(days=i + 1) for i in range(7)]
+                # Прогноз на 7 днів вперед
+                future_days = 7
+                last_day = (df_lr.index[-1] - df_lr.index[0]).days
+                X_future = [[last_day + i + 1] for i in range(future_days)]
+                forecast = model.predict(X_future)
+                future_dates = [df_lr.index[-1] + timedelta(days=i + 1) for i in range(future_days)]
 
                 fig, ax = plt.subplots(figsize=(8, 4))
                 ax.plot(last_2_months.index, last_2_months['Close'], label='Останні 2 місяці')
                 ax.plot(future_dates, forecast, label='Прогноз (7 днів)', color='red')
-                ax.set_title(f'Прогноз ціни для {symbol}')
+                ax.set_title(f'Прогноз ціни для {symbol} (лінійна регресія)')
                 ax.set_xlabel('Дата')
                 ax.set_ylabel('Ціна')
                 ax.legend()
@@ -113,7 +108,7 @@ if selected:
                 forecast_figs.append((symbol, fig, forecast, future_dates))
 
             except Exception as e:
-                st.error(f'❌ Помилка при побудові моделі ARIMA для {symbol}: {e}')
+                st.error(f'❌ Помилка при побудові моделі лінійної регресії для {symbol}: {e}')
         else:
             st.error(f'⚠️ Дані не знайдено для {symbol}.')
 
@@ -136,9 +131,10 @@ if selected:
             st.subheader('🔮 Прогнози')
             for symbol, fig, forecast, future_dates in forecast_figs:
                 st.pyplot(fig)
+
                 forecast_df = pd.DataFrame({
-                    'Дата': future_dates,
-                    'Прогнозована ціна': forecast.values
+                    'Дата': pd.to_datetime(future_dates),
+                    'Прогнозована ціна': forecast.flatten()  # <--- Виправлення тут
                 })
                 forecast_df.set_index('Дата', inplace=True)
                 st.write(f'📄 Таблиця прогнозу для {symbol}:')
