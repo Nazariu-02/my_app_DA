@@ -1,6 +1,5 @@
 yfinance
 pandas
-statsmodels
+scikit-learn
 matplotlib
-pmdarima
 streamlit
